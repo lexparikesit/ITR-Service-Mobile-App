@@ -1,0 +1,77 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+/node_modules
+/npm-debug.log
+/yarn-error.log
+/package-lock.json
+/yarn.lock
+
+# File Hasil Kompilasi & Build
+/build
+/dist
+/out
+/coverage
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env
+.env*.local
+.env.local
+.env.development.local
+.env.production.local
+
+# typescript
+*.tsbuildinfo
+
+app-example
+
+# generated native folders
+/ios
+/android
+
+# folder build/dependencies di frontend dan backend
+frontend/node_modules
+frontend/.next
+backend/node_modules
+backend/.next
+backend/dist
+backend/generated/prisma
+
+# Prisma
+prisma/generated/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
