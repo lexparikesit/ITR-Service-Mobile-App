@@ -9,11 +9,16 @@ import {
     ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import MapView, { Marker } from "react-native-maps";
 import { Feather } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as Crypto from "expo-crypto";
 import { useRouter } from "expo-router";
 import * as Location from "expo-location";
+import * as Localization from "expo-localization";
+import { initAttendanceQueueDb } from "../../lib/attendanceQueueDb";
+import { enqueueAttendance, findExistingDailyAttendance } from "../../lib/attendanceQueueRepo";
+import { syncAttendanceQueue } from "../../lib/attendanceSync";
+import ClockLocationMap from "./ClockLocationMap";
 
 type Mode = "in" | "out";
 
@@ -38,6 +43,23 @@ function formatToday(now = new Date()) {
     const m = months[now.getMonth()];
     const yyyy = now.getFullYear();
     return `${d}, ${dd} ${m} ${yyyy}`;
+}
+
+function createClientEventId() {
+    try {
+        return Crypto.randomUUID();
+    } catch {
+        return `${Date.now()}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}`;
+    }
+}
+
+function formatLocalClockTime(value: string) {
+    const dt = new Date(value);
+    if (Number.isNaN(dt.getTime())) return null;
+
+    const hh = String(dt.getHours()).padStart(2, "0");
+    const mm = String(dt.getMinutes()).padStart(2, "0");
+    return `${hh}:${mm}`;
 }
 
 export default function ClockFlowScreen({ mode }: { mode: Mode }) {
@@ -92,9 +114,12 @@ export default function ClockFlowScreen({ mode }: { mode: Mode }) {
     }, []);
 
     useEffect(() => {
-        // auto fetch on first open
         requestAndFetchLocation();
     }, [requestAndFetchLocation]);
+
+    useEffect(() => {
+        initAttendanceQueueDb();
+    }, []);
 
     const cameraRef = useRef<CameraView>(null);
     const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -168,33 +193,84 @@ export default function ClockFlowScreen({ mode }: { mode: Mode }) {
             return;
         }
 
-        // FRONTEND ONLY payload
-        const payload = {
-            mode,
-            date: new Date().toISOString(),
-            location: coords,
-            photoUri,
+        const clientEventId = createClientEventId();
+
+        const deviceTz = (Localization.getCalendars?.()[0] as any)?.timeZone ?? "Asia/Jakarta";
+        
+        const tzOffsetMinutes = new Date().getTimezoneOffset();
+
+        // backend mode needs "IN"/"OUT"
+        const modeDb = mode === "in" ? "IN" : "OUT";
+
+        // NOTE: untuk auth, employeeNik idealnya dari token/login user.
+        // Sementara untuk test, bisa hardcode atau ambil dari state/login.
+        const employeeNik = "00001"; // TODO: ganti dari user session
+        const nowIso = new Date().toISOString();
+
+        const existing = findExistingDailyAttendance({
+            employeeNik,
+            mode: modeDb,
+            clientTime: nowIso,
+        });
+
+        if (existing) {
+            const at = formatLocalClockTime(existing.client_time);
+
+            Alert.alert(
+                "Already recorded",
+                existing.status === "SYNCED"
+                    ? `${modeDb === "IN" ? "Clock in" : "Clock out"} for today is already recorded${at ? ` at ${at}` : ""}.`
+                    : `${modeDb === "IN" ? "Clock in" : "Clock out"} for today is already saved on device${at ? ` at ${at}` : ""} and will be synced automatically.`
+            );
+
+            await syncAttendanceQueue().catch((e) => {
+                console.log("SYNC ERROR", e);
+                return null;
+            });
+            return;
+        }
+
+        // 1) save in SQLite (offline queue)
+        enqueueAttendance({
+            clientEventId,
+            employeeNik,
+            mode: modeDb,
+            clientTime: nowIso,
+            deviceTz,
+            tzOffsetMinutes,
+            latitude: coords.latitude,
+            longitude: coords.longitude,
             notes: notes.trim() || null,
-        };
+            photoLocalUri: photoUri,
+        });
 
-        console.log("DTC SUBMIT:", payload);
+        // 2) direct to sync to DB
+        const result = await syncAttendanceQueue().catch((e) => {
+            console.log("SYNC ERROR", e);
+            return null;
+        });
 
+        const isSent = result?.synced && result.synced > 0;
+
+        // 3) UI feedback
         Alert.alert(
-            "Submitted (frontend only)",
-            `Mode: ${mode}\nLat: ${coords.latitude}\nLng: ${coords.longitude}\nNotes: ${notes.trim() || "-"}`,
-        [
-            {
-                text: "OK",
-                onPress: () => {
-                    // reset and back to home
-                    setStep(1);
-                    setPhotoUri(null);
-                    setNotes("");
-                    router.back();
+            isSent ? "Submitted" : "Saved",
+            isSent
+                ? "Attendance Successfully Save!"
+                : "Attendance stored on the device and will be sent automatically when there is an internet connection.",
+            [
+                {
+                    text: "OK",
+                    onPress: () => {
+                        setStep(1);
+                        setPhotoUri(null);
+                        setNotes("");
+                        router.back();
+                    },
                 },
-            },
-        ]
+            ]
         );
+
     }, [step, coords, photoUri, notes, mode, ensureCamera, router]);
 
     const onBack = useCallback(() => {
@@ -222,8 +298,8 @@ export default function ClockFlowScreen({ mode }: { mode: Mode }) {
 
                     <Pressable
                         onPress={() => {
-                        if (step === 1) requestAndFetchLocation();
-                        if (step === 2) setPhotoUri(null);
+                            if (step === 1) requestAndFetchLocation();
+                            if (step === 2) setPhotoUri(null);
                         }}
                         hitSlop={10}
                     >
@@ -266,9 +342,7 @@ export default function ClockFlowScreen({ mode }: { mode: Mode }) {
                                 )}
                             </View>
                         ) : (
-                            <MapView style={{ flex: 1 }} initialRegion={region} region={region}>
-                                <Marker coordinate={coords} />
-                            </MapView>
+                            <ClockLocationMap coords={coords} region={region} />
                         )}
                     </View>
 

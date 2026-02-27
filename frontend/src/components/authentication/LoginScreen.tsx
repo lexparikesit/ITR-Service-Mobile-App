@@ -120,8 +120,8 @@ export default function LoginScreen() {
                         <Image
                             source={
                                 isDark
-                                ? require("../../../assets/images/itr sip logo transparent.png")
-                                : require("../../../assets/images/itr sip logo-10.png")
+                                ? require("../../../assets/images/itr pass logo-01-DM.png")
+                                : require("../../../assets/images/itr pass logo-02-LM.png")
                             }
                             style={{ width: 220, height: 70 }}
                             resizeMode="contain"

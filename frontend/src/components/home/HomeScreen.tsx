@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback, useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import {
     View,
@@ -10,8 +10,11 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 import { useMobileUser } from "../context/MobileUserContext"; 
 import { useRouter } from "expo-router";
+import { initAttendanceQueueDb } from "../../lib/attendanceQueueDb";
+import { getTodayLatestSyncedClockIn } from "../../lib/attendanceQueueRepo";
 
 function getGreeting(now = new Date()) {
     const h = now.getHours();
@@ -56,13 +59,24 @@ function formatDtcTitle(now = new Date()) {
     return `Daily Time Card (DTC) for ${d}, ${dd} ${m} ${yyyy}`;
 }
 
+function formatClockTime(value: string) {
+    const dt = new Date(value);
+    if (Number.isNaN(dt.getTime())) return null;
+
+    const hh = String(dt.getHours()).padStart(2, "0");
+    const mm = String(dt.getMinutes()).padStart(2, "0");
+    return `${hh}:${mm}`;
+}
+
 function DailyTimeCard({
     title,
+    clockInTime,
     onClockIn,
     onClockOut,
     isDark,
 }: {
     title: string;
+    clockInTime: string | null;
     onClockIn: () => void;
     onClockOut: () => void;
     isDark: boolean;
@@ -123,7 +137,7 @@ function DailyTimeCard({
 
                     {/* status placeholder */}
                     <Text className="mt-4 text-center text-xs text-zinc-500 dark:text-zinc-400">
-                        You have not clocked in yet.
+                        {clockInTime ? `Clock in at ${clockInTime}` : "You have not clocked in yet."}
                     </Text>
                 </LinearGradient>
             </View>
@@ -254,6 +268,25 @@ export default function HomeScreen() {
     const greeting = getGreeting();
     const displayName = getDisplayName(user ?? undefined);
     const dtcTitle = formatDtcTitle(new Date());
+    const [clockInTime, setClockInTime] = useState<string | null>(null);
+
+    const loadClockInStatus = useCallback(() => {
+        initAttendanceQueueDb();
+
+        const latest = getTodayLatestSyncedClockIn();
+        if (!latest?.client_time) {
+            setClockInTime(null);
+            return;
+        }
+
+        setClockInTime(formatClockTime(latest.client_time));
+    }, []);
+
+    useFocusEffect(
+        useCallback(() => {
+            loadClockInStatus();
+        }, [loadClockInStatus])
+    );
 
     return (
         <SafeAreaView className="flex-1 bg-white dark:bg-[#0B0B0D]">
@@ -326,8 +359,8 @@ export default function HomeScreen() {
                         <Image
                         source={
                             isDark
-                            ? require("../../../assets/images/itr sip logo transparent.png")
-                            : require("../../../assets/images/itr sip logo-10.png")
+                                ? require("../../../assets/images/itr pass logo-01-DM.png")
+                                : require("../../../assets/images/itr pass logo-02-LM.png")
                         }
                         style={{ width: 90, height: 28 }}
                         resizeMode="contain"
@@ -338,6 +371,7 @@ export default function HomeScreen() {
                 {/* Daily Time Card (DTC) */}
                 <DailyTimeCard
                     title={dtcTitle}
+                    clockInTime={clockInTime}
                     onClockIn={() => router.push("/dtc/dtc-in")}
                     onClockOut={() => router.push("/dtc/dtc-out")}
                     isDark={isDark}
@@ -348,7 +382,7 @@ export default function HomeScreen() {
                     <Text className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Quick Actions</Text>
 
                     <View className="mt-3 flex-row gap-3">
-                        <Tile icon="bar-chart-2" title="Dashboard" subtitle="KPI snapshot" onPress={() => {}} />
+                        <Tile icon="bar-chart-2" title="Dashboard" subtitle="KPI snapshot" onPress={() => router.push("../dashboard/DashboardPage")} />
                         <Tile icon="file-text" title="Work Order" subtitle="Create / view WO" onPress={() => {}} />
                     </View>
 
@@ -388,7 +422,7 @@ export default function HomeScreen() {
                 isDark={isDark}
                 bottomInset={Math.max(insets.bottom, 10)}
                 onMenu1={() => {}}
-                onMenu2={() => {}}
+                onMenu2={() => router.push("../dashboard/DashboardPage")}
                 onHome={() => router.push("/home/home")}
                 onNotif={() => {}}
                 onAccount={() => router.push("/account/account")}
